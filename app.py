@@ -32,20 +32,6 @@ st.markdown("""
         border-left: 5px solid #dc3545;
         margin: 10px 0;
     }
-    .partial-answer {
-        background-color: #fff3cd;
-        padding: 10px;
-        border-radius: 5px;
-        border-left: 5px solid #ffc107;
-        margin: 10px 0;
-    }
-    .question-card {
-        background-color: #f8f9fa;
-        padding: 20px;
-        border-radius: 10px;
-        margin: 10px 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
     .info-badge {
         display: inline-block;
         padding: 3px 8px;
@@ -100,58 +86,84 @@ class ExamenSnowflake:
             self.preguntas = []
     
     def extraer_pregunta_mejorado(self, texto, num_pregunta):
-        """Extrae la información de la pregunta detectando automáticamente el tipo"""
+        """Extrae la información de la pregunta leyendo el tipo explícitamente"""
         
         # Extraer texto original
         original_match = re.search(r'Texto original:\s*(.+?)(?=Traducción:|$)', texto, re.DOTALL)
         original = original_match.group(1).strip() if original_match else ""
         
         # Extraer traducción
-        traduccion_match = re.search(r'Traducción:\s*(.+?)(?=A\.|B\.|C\.|D\.|E\.|F\.|Verdadero|Falso|Respuesta correcta:|$)', texto, re.DOTALL)
+        traduccion_match = re.search(r'Traducción:\s*(.+?)(?=A\.|B\.|C\.|D\.|E\.|F\.|Verdadero|Falso|Respuesta correcta:|Selección|Tipo:|$)', texto, re.DOTALL)
         traduccion = traduccion_match.group(1).strip() if traduccion_match else ""
         
-        # Detectar tipo de pregunta
+        # Detectar tipo de pregunta desde la línea "Tipo:" o desde el contexto
         tipo_pregunta = "Selección única"  # default
         opciones = {}
         
-        # Buscar indicadores de selección múltiple
-        if re.search(r'\(Elija (dos|tres|cuatro|todas)\)', texto, re.IGNORECASE):
-            match = re.search(r'\(Elija (dos|tres|cuatro|todas)\)', texto, re.IGNORECASE)
-            cantidad = match.group(1).lower()
-            if cantidad == 'dos':
+        # Buscar la línea de Tipo:
+        tipo_match = re.search(r'Tipo:\s*(.+)', texto)
+        if tipo_match:
+            tipo_texto = tipo_match.group(1).strip()
+            if 'Verdadero' in tipo_texto or 'Falso' in tipo_texto:
+                tipo_pregunta = "Verdadero/Falso"
+            elif 'Selección múltiple' in tipo_texto:
+                if '(2' in tipo_texto or 'dos' in tipo_texto.lower():
+                    tipo_pregunta = "Selección múltiple (2)"
+                elif '(3' in tipo_texto or 'tres' in tipo_texto.lower():
+                    tipo_pregunta = "Selección múltiple (3)"
+                elif '(4' in tipo_texto or 'cuatro' in tipo_texto.lower():
+                    tipo_pregunta = "Selección múltiple (4)"
+                elif 'todas' in tipo_texto.lower():
+                    tipo_pregunta = "Selección múltiple (todas)"
+            elif 'Selección única' in tipo_texto:
+                tipo_pregunta = "Selección única"
+        else:
+            # Si no hay línea de Tipo, intentar detectar por otras señales
+            texto_lower = texto.lower()
+            if 'verdadero o falso' in texto_lower or 'true or false' in texto_lower:
+                tipo_pregunta = "Verdadero/Falso"
+            elif 'elija dos' in texto_lower or 'choose two' in texto_lower:
                 tipo_pregunta = "Selección múltiple (2)"
-            elif cantidad == 'tres':
+            elif 'elija tres' in texto_lower or 'choose three' in texto_lower:
                 tipo_pregunta = "Selección múltiple (3)"
-            elif cantidad == 'cuatro':
+            elif 'elija cuatro' in texto_lower or 'choose four' in texto_lower:
                 tipo_pregunta = "Selección múltiple (4)"
-            elif cantidad == 'todas':
+            elif 'elija todas' in texto_lower or 'choose all' in texto_lower:
                 tipo_pregunta = "Selección múltiple (todas)"
         
-        # Detectar Verdadero/Falso
-        elif re.search(r'Verdadero o Falso:', texto, re.IGNORECASE) or \
-             re.search(r'True or False:', texto, re.IGNORECASE):
-            tipo_pregunta = "Verdadero/Falso"
+        # Para Verdadero/Falso, crear opciones específicas
+        if tipo_pregunta == "Verdadero/Falso":
             opciones = {
                 'A': 'Verdadero (True)',
                 'B': 'Falso (False)'
             }
-        
-        # Extraer opciones para preguntas de opción múltiple
-        if not opciones:  # Si no es Verdadero/Falso
-            # Buscar opciones con formato A., B., C., etc.
+        else:
+            # Extraer opciones con formato A., B., C., etc.
             opciones_raw = re.findall(r'([A-F])\.\s*(.+?)(?=[A-F]\.|Respuesta correcta:|$)', texto, re.DOTALL)
+            
+            # Si no se encontraron, buscar en líneas separadas
+            if not opciones_raw:
+                lineas = texto.split('\n')
+                for linea in lineas:
+                    match = re.match(r'^\s*([A-F])\.\s+(.+)$', linea.strip())
+                    if match:
+                        letra = match.group(1)
+                        texto_opcion = match.group(2).strip()
+                        opciones_raw.append((letra, texto_opcion))
+            
             for letra, texto_opcion in opciones_raw:
                 opciones[letra] = texto_opcion.strip()
         
         # Extraer respuesta correcta
         respuesta_match = re.search(r'Respuesta correcta:\s*([A-F, ]+)', texto)
         respuesta_correcta = respuesta_match.group(1).strip() if respuesta_match else ""
+        respuesta_correcta = respuesta_correcta.replace(' ', '')
         
-        # Para Verdadero/Falso, mapear la respuesta
+        # Para Verdadero/Falso, mapear
         if tipo_pregunta == "Verdadero/Falso":
-            if respuesta_correcta.upper() == 'A' or 'VERDADERO' in respuesta_correcta.upper():
+            if 'A' in respuesta_correcta or 'VERDADERO' in respuesta_correcta.upper():
                 respuesta_correcta = 'A'
-            elif respuesta_correcta.upper() == 'B' or 'FALSO' in respuesta_correcta.upper():
+            elif 'B' in respuesta_correcta or 'FALSO' in respuesta_correcta.upper():
                 respuesta_correcta = 'B'
         
         return {
@@ -175,8 +187,10 @@ class ExamenSnowflake:
             # Para selección múltiple, comparar conjuntos
             if isinstance(respuesta_usuario, list):
                 respuestas_usuario_set = set(respuesta_usuario)
-            else:
+            elif isinstance(respuesta_usuario, str):
                 respuestas_usuario_set = set(respuesta_usuario.split(','))
+            else:
+                respuestas_usuario_set = set()
             
             respuestas_correctas_set = set(pregunta['respuesta_correcta'].split(','))
             # Limpiar espacios
@@ -214,6 +228,7 @@ def mostrar_pregunta(pregunta, key_suffix=""):
     # Renderizar según el tipo de pregunta
     if pregunta['tipo'] == "Verdadero/Falso":
         # Radio buttons para Verdadero/Falso
+        st.info("📌 **Selecciona una opción**")
         opciones_tf = ["Verdadero (True)", "Falso (False)"]
         indice_actual = None
         
@@ -224,7 +239,7 @@ def mostrar_pregunta(pregunta, key_suffix=""):
                 indice_actual = 1
         
         respuesta_seleccionada = st.radio(
-            "Selecciona tu respuesta:",
+            "Respuesta:",
             options=opciones_tf,
             key=clave_respuesta,
             index=indice_actual if indice_actual is not None else None,
@@ -236,6 +251,8 @@ def mostrar_pregunta(pregunta, key_suffix=""):
     
     elif "múltiple" in pregunta['tipo']:
         # Checkboxes para selección múltiple
+        st.info(f"📌 **Selecciona todas las que correspondan**")
+        
         opciones_lista = [f"{letra}. {texto}" for letra, texto in pregunta['opciones'].items()]
         
         # Obtener selecciones actuales
@@ -247,14 +264,27 @@ def mostrar_pregunta(pregunta, key_suffix=""):
         
         # Crear checkboxes
         seleccionados = []
-        for opcion in opciones_lista:
+        
+        # Mostrar en 2 columnas para mejor organización
+        cols = st.columns(2)
+        for idx, opcion in enumerate(opciones_lista):
             letra = opcion[0]
             is_checked = letra in valores_seleccionados_actuales
-            checked = st.checkbox(opcion, value=is_checked, key=f"{clave_respuesta}_{letra}")
-            if checked:
-                seleccionados.append(letra)
+            col_idx = idx % 2
+            with cols[col_idx]:
+                checked = st.checkbox(opcion, value=is_checked, key=f"{clave_respuesta}_{letra}")
+                if checked:
+                    seleccionados.append(letra)
         
         respuesta_seleccionada = seleccionados
+        
+        # Mostrar sugerencia según el tipo
+        if '(2)' in pregunta['tipo']:
+            st.caption("💡 Sugerencia: Debes seleccionar 2 opciones")
+        elif '(3)' in pregunta['tipo']:
+            st.caption("💡 Sugerencia: Debes seleccionar 3 opciones")
+        elif '(4)' in pregunta['tipo']:
+            st.caption("💡 Sugerencia: Debes seleccionar 4 opciones")
         
         # Actualizar respuesta en session state
         if seleccionados:
@@ -264,6 +294,7 @@ def mostrar_pregunta(pregunta, key_suffix=""):
     
     else:  # Selección única
         # Radio buttons para selección única
+        st.info("📌 **Selecciona una opción**")
         opciones_lista = [f"{letra}. {texto}" for letra, texto in pregunta['opciones'].items()]
         indice_actual = None
         
@@ -274,7 +305,7 @@ def mostrar_pregunta(pregunta, key_suffix=""):
                 indice_actual = None
         
         respuesta_seleccionada = st.radio(
-            "Selecciona tu respuesta:",
+            "Respuesta:",
             options=opciones_lista,
             key=clave_respuesta,
             index=indice_actual if indice_actual is not None else None,
