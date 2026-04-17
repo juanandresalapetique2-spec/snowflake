@@ -173,7 +173,11 @@ class ExamenSnowflake:
             return respuesta_usuario == pregunta['respuesta_correcta']
         else:
             # Para selección múltiple, comparar conjuntos
-            respuestas_usuario_set = set(respuesta_usuario) if isinstance(respuesta_usuario, list) else set(respuesta_usuario.split(','))
+            if isinstance(respuesta_usuario, list):
+                respuestas_usuario_set = set(respuesta_usuario)
+            else:
+                respuestas_usuario_set = set(respuesta_usuario.split(','))
+            
             respuestas_correctas_set = set(pregunta['respuesta_correcta'].split(','))
             # Limpiar espacios
             respuestas_usuario_set = {r.strip() for r in respuestas_usuario_set}
@@ -235,7 +239,7 @@ def mostrar_pregunta(pregunta, key_suffix=""):
         opciones_lista = [f"{letra}. {texto}" for letra, texto in pregunta['opciones'].items()]
         
         # Obtener selecciones actuales
- valores_seleccionados_actuales = []
+        valores_seleccionados_actuales = []
         if respuesta_actual and isinstance(respuesta_actual, list):
             valores_seleccionados_actuales = respuesta_actual
         elif respuesta_actual and isinstance(respuesta_actual, str):
@@ -281,20 +285,19 @@ def mostrar_pregunta(pregunta, key_suffix=""):
             respuesta_seleccionada = respuesta_seleccionada[0]
     
     # Verificar respuesta y mostrar feedback
-    if respuesta_seleccionada is not None and respuesta_seleccionada != "":
-        if respuesta_seleccionada not in [None, []]:
-            st.session_state.respuestas_usuario[clave_respuesta] = respuesta_seleccionada
-            
-            es_correcta = st.session_state.examen.verificar_respuesta(pregunta, respuesta_seleccionada)
-            
-            if es_correcta:
-                st.markdown('<div class="correct-answer">✅ ¡Correcto!</div>', unsafe_allow_html=True)
+    if respuesta_seleccionada is not None and respuesta_seleccionada != "" and respuesta_seleccionada != []:
+        st.session_state.respuestas_usuario[clave_respuesta] = respuesta_seleccionada
+        
+        es_correcta = st.session_state.examen.verificar_respuesta(pregunta, respuesta_seleccionada)
+        
+        if es_correcta:
+            st.markdown('<div class="correct-answer">✅ ¡Correcto!</div>', unsafe_allow_html=True)
+        else:
+            if "múltiple" in pregunta['tipo']:
+                respuestas_correctas_texto = ", ".join(pregunta['respuesta_correcta'].split(','))
+                st.markdown(f'<div class="wrong-answer">❌ Incorrecto. Las respuestas correctas son: {respuestas_correctas_texto}</div>', unsafe_allow_html=True)
             else:
-                if "múltiple" in pregunta['tipo']:
-                    respuestas_correctas_texto = ", ".join(pregunta['respuesta_correcta'].split(','))
-                    st.markdown(f'<div class="wrong-answer">❌ Incorrecto. Las respuestas correctas son: {respuestas_correctas_texto}</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="wrong-answer">❌ Incorrecto. La respuesta correcta es: {pregunta["respuesta_correcta"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="wrong-answer">❌ Incorrecto. La respuesta correcta es: {pregunta["respuesta_correcta"]}</div>', unsafe_allow_html=True)
     
     st.markdown("---")
 
@@ -352,7 +355,7 @@ def main():
         # Progreso
         st.subheader("📊 Progreso")
         respondidas = len(st.session_state.respuestas_usuario)
-        porcentaje = (respondidas / total_preguntas) * 100
+        porcentaje = (respondidas / total_preguntas) * 100 if total_preguntas > 0 else 0
         st.metric("Preguntas Respondidas", f"{respondidas}/{total_preguntas}")
         st.progress(porcentaje / 100)
         
@@ -398,7 +401,6 @@ def mostrar_resultados():
     resultados_por_pregunta = []
     
     for pregunta in st.session_state.examen.preguntas:
-        clave = f"pregunta_{pregunta['numero']}_"
         # Buscar la clave que coincide
         respuesta_usuario = None
         for key in respuestas:
